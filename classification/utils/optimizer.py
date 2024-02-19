@@ -9,6 +9,9 @@
 
 from functools import partial
 from torch import optim as optim
+from utils.sam import SAM
+from distributed_shampoo.distributed_shampoo import DistributedShampoo
+from distributed_shampoo.shampoo_types import SGDGraftingConfig
 
 
 def build_optimizer(config, model, logger, **kwargs):
@@ -18,21 +21,53 @@ def build_optimizer(config, model, logger, **kwargs):
     logger.info(f"==============> building optimizer {config.TRAIN.OPTIMIZER.NAME}....................")
     skip = {}
     skip_keywords = {}
-    if hasattr(model, 'no_weight_decay'):
+    if hasattr(model, "no_weight_decay"):
         skip = model.no_weight_decay()
-    if hasattr(model, 'no_weight_decay_keywords'):
+    if hasattr(model, "no_weight_decay_keywords"):
         skip_keywords = model.no_weight_decay_keywords()
     parameters, no_decay_names = set_weight_decay(model, skip, skip_keywords)
     logger.info(f"No weight decay list: {no_decay_names}")
 
     opt_lower = config.TRAIN.OPTIMIZER.NAME.lower()
     optimizer = None
-    if opt_lower == 'sgd':
-        optimizer = optim.SGD(parameters, momentum=config.TRAIN.OPTIMIZER.MOMENTUM, nesterov=True,
-                              lr=config.TRAIN.BASE_LR, weight_decay=config.TRAIN.WEIGHT_DECAY)
-    elif opt_lower == 'adamw':
-        optimizer = optim.AdamW(parameters, eps=config.TRAIN.OPTIMIZER.EPS, betas=config.TRAIN.OPTIMIZER.BETAS,
-                                lr=config.TRAIN.BASE_LR, weight_decay=config.TRAIN.WEIGHT_DECAY)
+    if opt_lower == "sgd":
+        optimizer = optim.SGD(
+            parameters,
+            momentum=config.TRAIN.OPTIMIZER.MOMENTUM,
+            nesterov=True,
+            lr=config.TRAIN.BASE_LR,
+            weight_decay=config.TRAIN.WEIGHT_DECAY,
+        )
+    elif opt_lower == "adamw":
+        optimizer = optim.AdamW(
+            parameters,
+            eps=config.TRAIN.OPTIMIZER.EPS,
+            betas=config.TRAIN.OPTIMIZER.BETAS,
+            lr=config.TRAIN.BASE_LR,
+            weight_decay=config.TRAIN.WEIGHT_DECAY,
+        )
+    elif opt_lower == "sam":
+        base_optimizer = optim.SGD
+        optimizer = SAM(
+            parameters,
+            base_optimizer,
+            momentum=config.TRAIN.OPTIMIZER.MOMENTUM,
+            nesterov=True,
+            lr=config.TRAIN.BASE_LR,
+            weight_decay=config.TRAIN.WEIGHT_DECAY,
+        )
+    elif opt_lower == "shampoo":
+        optimizer = DistributedShampoo(
+            parameters,
+            epsilon=config.TRAIN.OPTIMIZER.EPS,
+            betas=config.TRAIN.OPTIMIZER.BETAS,
+            momentum=config.TRAIN.OPTIMIZER.MOMENTUM,
+            lr=config.TRAIN.BASE_LR,
+            weight_decay=config.TRAIN.WEIGHT_DECAY,
+            max_preconditioner_dim=8192,
+            precondition_frequency=100,
+            grafting_config=SGDGraftingConfig(),
+        )
     else:
         raise NotImplementedError
 
@@ -47,15 +82,18 @@ def set_weight_decay(model, skip_list=(), skip_keywords=()):
     for name, param in model.named_parameters():
         if not param.requires_grad:
             continue  # frozen weights
-        if len(param.shape) == 1 or name.endswith(".bias") or (name in skip_list) or \
-                check_keywords_in_name(name, skip_keywords):
+        if (
+            len(param.shape) == 1
+            or name.endswith(".bias")
+            or (name in skip_list)
+            or check_keywords_in_name(name, skip_keywords)
+        ):
             no_decay.append(param)
             no_decay_names.append(name)
             # print(f"{name} has no weight decay")
         else:
             has_decay.append(param)
-    return [{'params': has_decay},
-            {'params': no_decay, 'weight_decay': 0.}], no_decay_names 
+    return [{"params": has_decay}, {"params": no_decay, "weight_decay": 0.0}], no_decay_names
 
 
 def check_keywords_in_name(name, keywords=()):
@@ -69,33 +107,46 @@ def check_keywords_in_name(name, keywords=()):
 # ==========================
 # for mim, currently not used, and may have bugs...
 
+
 def build_optimizer_swimmim(config, model, logger, simmim=True, is_pretrain=False):
     """
     Build optimizer, set weight decay of normalization to 0 by default.
     """
     skip = {}
     skip_keywords = {}
-    if hasattr(model, 'no_weight_decay'):
+    if hasattr(model, "no_weight_decay"):
         skip = model.no_weight_decay()
-    if hasattr(model, 'no_weight_decay_keywords'):
+    if hasattr(model, "no_weight_decay_keywords"):
         skip_keywords = model.no_weight_decay_keywords()
     if is_pretrain:
         parameters = get_pretrain_param_groups(model, skip, skip_keywords)
     else:
-        depths = config.MODEL.SWIN.DEPTHS if config.MODEL.TYPE == 'swin' else config.MODEL.SWINV2.DEPTHS
+        depths = config.MODEL.SWIN.DEPTHS if config.MODEL.TYPE == "swin" else config.MODEL.SWINV2.DEPTHS
         num_layers = sum(depths)
         get_layer_func = partial(get_swin_layer, num_layers=num_layers + 2, depths=depths)
-        scales = list(config.TRAIN.LAYER_DECAY ** i for i in reversed(range(num_layers + 2)))
-        parameters = get_finetune_param_groups(model, config.TRAIN.BASE_LR, config.TRAIN.WEIGHT_DECAY, get_layer_func, scales, skip, skip_keywords)
+        scales = list(config.TRAIN.LAYER_DECAY**i for i in reversed(range(num_layers + 2)))
+        parameters = get_finetune_param_groups(
+            model, config.TRAIN.BASE_LR, config.TRAIN.WEIGHT_DECAY, get_layer_func, scales, skip, skip_keywords
+        )
 
     opt_lower = config.TRAIN.OPTIMIZER.NAME.lower()
     optimizer = None
-    if opt_lower == 'sgd':
-        optimizer = optim.SGD(parameters, momentum=config.TRAIN.OPTIMIZER.MOMENTUM, nesterov=True,
-                              lr=config.TRAIN.BASE_LR, weight_decay=config.TRAIN.WEIGHT_DECAY)
-    elif opt_lower == 'adamw':
-        optimizer = optim.AdamW(parameters, eps=config.TRAIN.OPTIMIZER.EPS, betas=config.TRAIN.OPTIMIZER.BETAS,
-                                lr=config.TRAIN.BASE_LR, weight_decay=config.TRAIN.WEIGHT_DECAY)
+    if opt_lower == "sgd":
+        optimizer = optim.SGD(
+            parameters,
+            momentum=config.TRAIN.OPTIMIZER.MOMENTUM,
+            nesterov=True,
+            lr=config.TRAIN.BASE_LR,
+            weight_decay=config.TRAIN.WEIGHT_DECAY,
+        )
+    elif opt_lower == "adamw":
+        optimizer = optim.AdamW(
+            parameters,
+            eps=config.TRAIN.OPTIMIZER.EPS,
+            betas=config.TRAIN.OPTIMIZER.BETAS,
+            lr=config.TRAIN.BASE_LR,
+            weight_decay=config.TRAIN.WEIGHT_DECAY,
+        )
     else:
         raise NotImplementedError
 
@@ -107,19 +158,22 @@ def get_pretrain_param_groups(model, skip_list=(), skip_keywords=()):
     no_decay = []
     has_decay_name = []
     no_decay_name = []
-    
+
     for name, param in model.named_parameters():
         if not param.requires_grad:
             continue
-        if len(param.shape) == 1 or name.endswith(".bias") or (name in skip_list) or \
-                check_keywords_in_name(name, skip_keywords):
+        if (
+            len(param.shape) == 1
+            or name.endswith(".bias")
+            or (name in skip_list)
+            or check_keywords_in_name(name, skip_keywords)
+        ):
             no_decay.append(param)
             no_decay_name.append(name)
         else:
             has_decay.append(param)
             has_decay_name.append(name)
-    return [{'params': has_decay},
-            {'params': no_decay, 'weight_decay': 0.}]
+    return [{"params": has_decay}, {"params": no_decay, "weight_decay": 0.0}]
 
 
 def get_swin_layer(name, num_layers, depths):
@@ -128,10 +182,10 @@ def get_swin_layer(name, num_layers, depths):
     elif name.startswith("patch_embed"):
         return 0
     elif name.startswith("layers"):
-        layer_id = int(name.split('.')[1])
-        block_id = name.split('.')[3]
-        if block_id == 'reduction' or block_id == 'norm':
-            return sum(depths[:layer_id + 1])
+        layer_id = int(name.split(".")[1])
+        block_id = name.split(".")[3]
+        if block_id == "reduction" or block_id == "norm":
+            return sum(depths[: layer_id + 1])
         layer_id = sum(depths[:layer_id]) + int(block_id)
         return layer_id + 1
     else:
@@ -145,10 +199,14 @@ def get_finetune_param_groups(model, lr, weight_decay, get_layer_func, scales, s
     for name, param in model.named_parameters():
         if not param.requires_grad:
             continue
-        if len(param.shape) == 1 or name.endswith(".bias") or (name in skip_list) or \
-                check_keywords_in_name(name, skip_keywords):
+        if (
+            len(param.shape) == 1
+            or name.endswith(".bias")
+            or (name in skip_list)
+            or check_keywords_in_name(name, skip_keywords)
+        ):
             group_name = "no_decay"
-            this_weight_decay = 0.
+            this_weight_decay = 0.0
         else:
             group_name = "decay"
             this_weight_decay = weight_decay
@@ -162,7 +220,7 @@ def get_finetune_param_groups(model, lr, weight_decay, get_layer_func, scales, s
             if scales is not None:
                 scale = scales[layer_id]
             else:
-                scale = 1.
+                scale = 1.0
 
             parameter_group_names[group_name] = {
                 "group_name": group_name,
@@ -176,10 +234,9 @@ def get_finetune_param_groups(model, lr, weight_decay, get_layer_func, scales, s
                 "weight_decay": this_weight_decay,
                 "params": [],
                 "lr": lr * scale,
-                "lr_scale": scale
+                "lr_scale": scale,
             }
 
         parameter_group_vars[group_name]["params"].append(param)
         parameter_group_names[group_name]["params"].append(name)
     return list(parameter_group_vars.values())
-
