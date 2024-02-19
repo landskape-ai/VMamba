@@ -38,7 +38,7 @@ _C.DATA.CACHE_MODE = "part"
 # Pin CPU memory in DataLoader for more efficient (sometimes) transfer to GPU.
 _C.DATA.PIN_MEMORY = True
 # Number of data loading threads
-_C.DATA.NUM_WORKERS = 8
+_C.DATA.NUM_WORKERS = 12
 
 # [SimMIM] Mask patch size for MaskGenerator
 _C.DATA.MASK_PATCH_SIZE = 32
@@ -100,7 +100,7 @@ _C.MODEL.VSSM.PATCHEMBED = "v2"
 _C.TRAIN = CN()
 _C.TRAIN.START_EPOCH = 0
 _C.TRAIN.EPOCHS = 300
-_C.TRAIN.WARMUP_EPOCHS = 20
+_C.TRAIN.WARMUP_EPOCHS = 5 # 20
 _C.TRAIN.WEIGHT_DECAY = 0.05
 _C.TRAIN.BASE_LR = 5e-4
 _C.TRAIN.WARMUP_LR = 5e-7
@@ -207,7 +207,7 @@ _C.TAG = "default"
 # Frequency to save checkpoint
 _C.SAVE_FREQ = 1
 # Frequency to logging info
-_C.PRINT_FREQ = 10
+_C.PRINT_FREQ = 50
 # Fixed random seed
 _C.SEED = 0
 # Perform evaluation only, overwritten by command line argument

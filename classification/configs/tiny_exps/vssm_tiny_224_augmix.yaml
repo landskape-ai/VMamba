@@ -1,0 +1,25 @@
+MODEL:
+  TYPE: vssm
+  NAME: vssm1_tiny
+  DROP_PATH_RATE: 0.2
+  VSSM:
+    EMBED_DIM: 96
+    DEPTHS: [2, 2, 4, 2]
+    SSM_D_STATE: 16
+    SSM_DT_RANK: "auto"
+    SSM_RATIO: 1.2
+    SSM_ACT_LAYER: "silu"
+    MLP_RATIO: 4.0
+    MLP_ACT_LAYER: "gelu"
+# remove the TRAIN section for default
+# TRAIN:
+#   BASE_LR: 0.03 # 5e-4
+#   WEIGHT_DECAY: 0.0003 # 0.05
+#   OPTIMIZER:
+#     NAME: shampoo
+#     EPS: 1e-12
+  # LOSS:
+  #   NAME: "BCE"
+# remove the AUG section for random default
+AUG:
+  AUTO_AUGMENT: "augmix"

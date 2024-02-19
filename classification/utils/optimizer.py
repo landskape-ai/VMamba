@@ -9,7 +9,7 @@
 
 from functools import partial
 from torch import optim as optim
-from utils.sam import SAM
+# from utils.sam import SAM
 from distributed_shampoo.distributed_shampoo import DistributedShampoo
 from distributed_shampoo.shampoo_types import SGDGraftingConfig
 
